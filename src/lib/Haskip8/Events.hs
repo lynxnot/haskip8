@@ -15,10 +15,9 @@ import Haskip8.Types
 
 quitApp :: ( MonadReader env m
            , MonadUnliftIO m
-           , HasConfig env
            , HasC8Machine env
-           , HasLogFunc env
-           , HasCallStack
+           --, HasLogFunc env
+           --, HasCallStack
            ) => m ()
 quitApp = do
   c8vm <- view c8machineG
@@ -27,12 +26,11 @@ quitApp = do
 
 eventReact :: ( PrimMonad m,MonadReader env m
               , MonadUnliftIO m
-              , HasConfig env
               , HasC8Machine env
-              , HasLogFunc env
-              , HasCallStack
+              --, HasLogFunc env
+              --, HasCallStack
               ) => Event -> m ()
-eventReact ev = do
+eventReact ev =
   case eventPayload ev of
     QuitEvent -> quitApp
     KeyboardEvent kbdEvent ->
@@ -44,10 +42,9 @@ eventReact ev = do
 
 updateKeyState :: ( PrimMonad m,MonadReader env m
                   , MonadUnliftIO m
-                  , HasConfig env
                   , HasC8Machine env
-                  , HasLogFunc env
-                  , HasCallStack
+                  --, HasLogFunc env
+                  --, HasCallStack
                   ) => Keysym -> Bool -> m ()
 updateKeyState ksym state =
   case keysymKeycode ksym of
@@ -87,16 +84,15 @@ updateKeyState ksym state =
     _ -> return ()
 
 
-doUpdate :: ( PrimMonad m, MonadReader env m
-            , MonadUnliftIO m
-            , HasConfig env
+doUpdate :: ( PrimMonad m
+            , MonadReader env m
             , HasC8Machine env
-            , HasLogFunc env
-            , HasCallStack
+            --, HasLogFunc env
+            --, HasCallStack
             ) => C8Key -> Bool -> m ()
-doUpdate k st = do
+doUpdate k state = do
   kState <- keysState <$> view c8machineG
   mKS <- A.unsafeThaw kState
-  A.write' mKS (fromEnum k) st
-  A.unsafeFreeze A.Seq mKS
+  A.write' mKS (fromEnum k) state
+  _ <- A.unsafeFreeze A.Seq mKS
   return ()
