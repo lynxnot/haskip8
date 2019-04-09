@@ -1,0 +1,83 @@
+name:                haskip8
+version:             0.1.0.0
+github:              "lynxnot/haskip8"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2019 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/haskip8#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- rio
+- sdl2
+- random
+- optparse-applicative
+- massiv
+
+default-extensions:
+- NoImplicitPrelude
+- OverloadedStrings
+- BangPatterns
+
+library:
+  source-dirs: src/lib
+  ghc-options:
+  - -O
+  - -j
+  - -Wall
+  - -Wcompat
+  - -Widentities
+  - -Wincomplete-record-updates
+  - -Wincomplete-uni-patterns
+  - -Wpartial-fields
+  - -Wredundant-constraints
+
+executables:
+  haskip8-exe:
+    main:                Main.hs
+    source-dirs:         src/app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - haskip8
+
+tests:
+  haskip8-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - haskip8
+    - hspec
+
+
+benchmarks:
+  haskip8-mark:
+    main:                Mark.hs
+    source-dirs:         bench
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O
+    dependencies:
+    - haskip8
+    - criterion
