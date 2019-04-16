@@ -10,6 +10,11 @@ module Haskip8.Types
   , C8Nibl()
   , C8Reg(..)
   , C8Key(..)
+  , C8FrameBuffer
+  , C8KeysState
+  , C8Stack
+  , C8Memory
+  , C8Registers
   , C8Machine(..)
   , c8addr
   , c8nibl
@@ -139,13 +144,21 @@ data C8Key
 
 
 --------------------------------------------------------------------------------
+-- |
+type C8FrameBuffer = A.Array A.S A.Ix2 Bool
+type C8KeysState   = A.Array A.S A.Ix1 Bool
+type C8Stack       = A.Array A.S A.Ix1 C8Long
+type C8Memory      = A.Array A.S A.Ix1 C8Word
+type C8Registers   = A.Array A.S A.Ix1 C8Word
+
+--------------------------------------------------------------------------------
 -- | CHIP-8 Virtual Machine
 data C8Machine = C8Machine
-  { frameBuffer :: A.Array A.S A.Ix2 Bool
-  , keysState   :: A.Array A.S A.Ix1 Bool
-  , stack       :: A.Array A.S A.Ix1 C8Long
-  , memory      :: A.Array A.S A.Ix1 C8Word
-  , regz        :: A.Array A.S A.Ix1 C8Word
+  { frameBuffer :: C8FrameBuffer
+  , keysState   :: C8KeysState
+  , stack       :: C8Stack
+  , memory      :: C8Memory
+  , regz        :: C8Registers
   , regI        :: IORef C8Addr
   , pc          :: IORef C8Addr
   , sp          :: IORef C8Word

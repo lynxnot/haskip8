@@ -47,7 +47,7 @@ emulateC8 romPath emulOpts = do
               , appOptions = emulOpts
               , c8machine  = c8vm
               }
-    in runRIO app emulC8
+    in runRIO app initC8
 
 
 unpackRom :: RomFilePath -> IO RomFile

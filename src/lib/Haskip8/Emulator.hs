@@ -1,20 +1,25 @@
 module Haskip8.Emulator
   ( bootC8
-  , emulC8
+  , initC8
   ) where
 
 import RIO
 
-import qualified Data.Massiv.Array as A
+import Data.Bits ((.&.))
+import Data.Massiv.Array as A
+
+import GHC.Enum (enumFrom)
 
 import System.Random
 
 import qualified SDL (Renderer, mapEvents)
 
 import Haskip8.Events
-import Haskip8.Options
+import Haskip8.Instructions
+--import Haskip8.Options
 import Haskip8.Types
 import Haskip8.UI
+import Haskip8.Util
 
 --------------------------------------------------------------------------------
 -- | CHIP-8 sprites
@@ -58,7 +63,7 @@ bootC8 rom = do
   let seed    =  fst (randomR (0, 0xff) stdGen)
   pseudoRng   <- newIORef $ mkStdGen seed
   return C8Machine
-    { frameBuffer = A.makeArrayR A.S A.Seq (A.Sz 32 A.:. 64) (const False)
+    { frameBuffer = A.makeArrayR A.S A.Seq (A.Sz 32 :. 64) (const False)
     , keysState   = A.makeArrayR A.S A.Seq (A.Sz 16) (const False)
     , stack       = A.makeArrayR A.S A.Seq (A.Sz 16) (const 0)
     , memory      = initMemory rom
@@ -73,7 +78,8 @@ bootC8 rom = do
     }
 
 
-initMemory :: RomFile -> A.Array A.S A.Ix1 C8Word
+-- |
+initMemory :: RomFile -> C8Memory
 initMemory rom =
   A.fromList A.Seq $ concat
     [ zeroes (fromIntegral addrSpriteStart)
@@ -84,26 +90,22 @@ initMemory rom =
     ]
 
 
-zeroes :: Int -> [C8Word]
-zeroes n = replicate n 0x0
-
-
-emulC8 :: ( PrimMonad m,MonadReader env m
+-- |
+initC8 :: ( PrimMonad m, MonadReader env m
           , MonadUnliftIO m
           , HasConfig env
           , HasC8Machine env
           , HasLogFunc env
           , HasCallStack
           ) => m ()
-emulC8 = do
+initC8 = do
   logInfo "Starting CHIP-8 emulator"
-  opts <- view configG
-  r    <- buildUI (scale opts)
+  r    <- buildUI
   loopC8 r
 
 
-
-loopC8 :: ( PrimMonad m,MonadReader env m
+-- |
+loopC8 :: ( PrimMonad m, MonadReader env m
           , MonadUnliftIO m
           , HasConfig env
           , HasC8Machine env
@@ -113,12 +115,115 @@ loopC8 :: ( PrimMonad m,MonadReader env m
 loopC8 r = do
   -- manage events
   SDL.mapEvents eventReact
-
-
-
+  -- run cycle
+  runC8Cycle
+  -- draw window
+  presentUI r
   -- exit or loop
   c8vm    <- view c8machineG
   --logDebug $ "KS: " <> displayShow (keysState c8vm)
-
   exitNow <- readIORef (shouldExit c8vm)
   unless exitNow (loopC8 r)
+
+
+-- |
+runC8Cycle :: ( PrimMonad m
+              , MonadReader env m
+              , MonadUnliftIO m
+              --, HasConfig env
+              , HasC8Machine env
+              --, HasLogFunc env
+              --, HasCallStack
+              ) => m ()
+runC8Cycle = do
+  c8vm <- view c8machineG
+  pc'  <- readIORef $ pc c8vm
+  let op = parseOp $ readMemC8Long pc' (memory c8vm)
+  runOp op
+  --return ()
+
+
+
+-- | Source of Thruth: http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
+--
+runOp :: ( PrimMonad m
+         , MonadReader env m
+         , MonadUnliftIO m
+         , HasC8Machine env
+         --, HasLogFunc env
+         --, HasCallStack
+         ) => Maybe C8Instruction -> m ()
+runOp mop = do
+  c8vm  <- view c8machineG
+  let regz' = regz c8vm
+  case mop of
+    Nothing -> undefined -- should do a bluescreen
+    Just op ->
+      case op of
+        CLS            -> undefined
+        RET            -> undefined
+        SYS  addr      -> undefined
+        JMP  addr      -> undefined
+        CALL addr      -> undefined
+        SEB  r1 word   -> undefined
+        SNEB r1 word   -> undefined
+        SE   r1 r2     -> undefined
+        LDB  r1 word   -> undefined
+        ADDB r1 word   -> undefined
+        LD   r1 r2     -> undefined
+        OR   r1 r2     -> undefined
+        AND  r1 r2     -> undefined
+        XOR  r1 r2     -> undefined
+        ADD  r1 r2     -> undefined
+        SUB  r1 r2     -> undefined
+        SHR  r1 r2     -> undefined
+        SUBN r1 r2     -> undefined
+        SHL  r1 r2     -> undefined
+        SNE  r1 r2     -> undefined
+
+        -- Annn - LD I, addr
+        LDI  addr      -> atomicWriteIORef (regI c8vm) addr
+
+        -- Bnnn - JP V0, addr
+        JMP0 addr      -> do
+          let newAddr = addr + fromIntegral (regz' A.! 0)
+          atomicWriteIORef (pc c8vm) newAddr
+
+        -- Cxkk - RND Vx, byte
+        RND  r1 word   -> do
+          prng <- readIORef (rndGen c8vm)
+          let (rnd, prng') = randomR (0, 0xff) prng
+          _ <- storeRegWord regz' r1 (rnd .&. word)
+          atomicWriteIORef (rndGen c8vm) prng'
+
+        --
+        DRW  r1 r2 nib -> undefined
+        SKP  r1        -> undefined
+        SKNP r1        -> undefined
+        LDDT r1        -> undefined
+        LDK  r1        -> undefined
+        STDT r1        -> undefined
+        STST r1        -> undefined
+        ADDI r1        -> undefined
+        LDF  r1        -> undefined
+
+        -- Fx33
+        LBCD r1        -> do
+          regI' <- readIORef (regI c8vm)
+          let bcds = c8wordBCD (regz' A.! fromEnum r1)
+          _ <- RIO.mapM (uncurry (storeMemWord (memory c8vm)))
+                      $  RIO.zip [regI' .. ] bcds
+          return ()
+
+        -- Fx55 - LD [I], Vx
+        STRI r1        -> undefined
+
+        -- Fx65 - LD Vx, [I]
+        REDI r1        -> do
+          regI' <- readIORef (regI c8vm)
+          let values = A.toList $ A.extract' (fromIntegral regI')
+                                             (fromEnum r1 + 1)
+                                             (memory c8vm)
+          _ <- RIO.mapM (uncurry (storeRegWord regz'))
+                      $  RIO.zip (enumFrom V0) values
+          return ()
