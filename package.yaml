@@ -26,6 +26,7 @@ dependencies:
 - random
 - optparse-applicative
 - massiv
+- bv
 
 default-extensions:
 - NoImplicitPrelude
