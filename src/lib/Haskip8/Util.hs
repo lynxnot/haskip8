@@ -8,15 +8,20 @@ module Haskip8.Util
     , zeroes
     , readMemC8Long
     , unsafeWithMArray
+    , storeKeyState
     , storeRegWord
     , storeMemWord
     , c8wordBCD
+    , sprite2Row
+    , drawRows
     ) where
 
 import RIO
 import RIO.Partial (toEnum)
 
+import Data.BitVector as BV
 import Data.Bits ((.&.), shiftR, shiftL)
+import Data.List as L (head, last, unzip)
 
 import Data.Massiv.Array as A
 import Data.Massiv.Array.Unsafe as A
@@ -54,7 +59,7 @@ nib2Reg n = toEnum $ fromIntegral n
 
 -- |
 zeroes :: Int -> [C8Word]
-zeroes n = replicate n 0x0
+zeroes n = RIO.replicate n 0x0
 
 
 -- |
@@ -77,6 +82,13 @@ unsafeWithMArray arr action = do
 
 
 -- |
+storeKeyState :: PrimMonad m => C8KeysState -> C8Key -> Bool -> m ()
+storeKeyState kState k state = do
+  _ <- unsafeWithMArray kState (\ma -> A.write' ma (fromEnum k) state)
+  return ()
+
+
+-- |
 storeRegWord :: PrimMonad m => C8Registers -> C8Reg -> C8Word -> m C8Registers
 storeRegWord rs r w =
   unsafeWithMArray rs (\ma -> A.write' ma (fromEnum r) w)
@@ -89,7 +101,51 @@ storeMemWord mem addr w =
 
 
 -- |
+updateFbBit :: PrimMonad m => C8FrameBuffer -> (Ix2, Bool) -> m C8FrameBuffer
+updateFbBit fb (ix, e) =
+  unsafeWithMArray fb (\ma -> A.write' ma ix e)
+
+
+-- |
 c8wordBCD :: C8Word -> [C8Word]
 c8wordBCD c8w = [c, d, u]
   where (cd, u) = c8w `quotRem` 10
         ( c, d) =  cd `quotRem` 10
+
+
+-- |
+sprite2Row :: C8Word -> C8Word -> [Bool]
+sprite2Row pos sprite =
+  toBits $ (bitVec 64 sprite <<. 56) >>>. fromIntegral pos
+
+
+-- | return the pair:
+--    -> (collision?, xor a b)
+cxor :: (Bool, Bool) -> (Bool, Bool)
+cxor (True,  True)  = (True, False)
+cxor (False, False) = (False, False)
+cxor (_,     _)     = (False, True)
+
+
+-- |
+drawRow :: [Bool] -> [Bool] -> (Bool, [Bool])
+drawRow r1 r2 = (collided, pixls)
+  where (colls, pixls) = L.unzip $ RIO.map cxor $ RIO.zip r1 r2
+        collided = RIO.any id colls
+
+
+-- |
+drawRows :: ( PrimMonad m
+            , MonadReader env m
+            , HasC8Machine env
+            ) => [Int] -> [[Bool]] -> m Bool
+drawRows rowsIx rows = do
+  c8fb <- frameBuffer <$> view c8machineG
+  let actualRows = A.toLists
+                      $ A.extractFromTo' (L.head rowsIx     :. 0)
+                                         (L.last rowsIx + 1 :. 64) c8fb
+  let (colls, newRows) = L.unzip $ uncurry drawRow <$> RIO.zip actualRows rows
+  let newIxs = (\row -> (row :.) <$> take 64 [0..]) <$> rowsIx
+  let !newIxsPixls = RIO.zip (RIO.concat newIxs) (RIO.concat newRows)
+  _ <- RIO.mapM (updateFbBit c8fb) newIxsPixls
+  return (RIO.any id colls)

@@ -4,31 +4,27 @@ module Haskip8.Events
 
 import RIO
 
-import Data.Massiv.Array as A
-import Data.Massiv.Array.Unsafe as A
-
 import SDL
 
 import Haskip8.Types
+import Haskip8.Util
 
 
-
+-- |
 quitApp :: ( MonadReader env m
            , MonadUnliftIO m
            , HasC8Machine env
-           --, HasLogFunc env
-           --, HasCallStack
            ) => m ()
 quitApp = do
   c8vm <- view c8machineG
   atomicWriteIORef (shouldExit c8vm) True
 
 
-eventReact :: ( PrimMonad m,MonadReader env m
+-- |
+eventReact :: ( PrimMonad m
+              , MonadReader env m
               , MonadUnliftIO m
               , HasC8Machine env
-              --, HasLogFunc env
-              --, HasCallStack
               ) => Event -> m ()
 eventReact ev =
   case eventPayload ev of
@@ -40,59 +36,46 @@ eventReact ev =
     _ -> return ()
 
 
-updateKeyState :: ( PrimMonad m,MonadReader env m
+-- |
+updateKeyState :: ( PrimMonad m
+                  , MonadReader env m
                   , MonadUnliftIO m
                   , HasC8Machine env
-                  --, HasLogFunc env
-                  --, HasCallStack
                   ) => Keysym -> Bool -> m ()
-updateKeyState ksym state =
+updateKeyState ksym state = do
+  kState <- keysState <$> view c8machineG
   case keysymKeycode ksym of
     KeycodeQ          -> quitApp
-    KeycodeKP0        -> doUpdate K0 state
-    KeycodeKP1        -> doUpdate K1 state
-    KeycodeKP2        -> doUpdate K2 state
-    KeycodeKP3        -> doUpdate K3 state
-    KeycodeKP4        -> doUpdate K4 state
-    KeycodeKP5        -> doUpdate K5 state
-    KeycodeKP6        -> doUpdate K6 state
-    KeycodeKP7        -> doUpdate K7 state
-    KeycodeKP8        -> doUpdate K8 state
-    KeycodeKP9        -> doUpdate K9 state
-    KeycodeKPPeriod   -> doUpdate KA state
-    KeycodeKPEnter    -> doUpdate KB state
-    KeycodeKPPlus     -> doUpdate KC state
-    KeycodeKPMinus    -> doUpdate KD state
-    KeycodeKPMultiply -> doUpdate KE state
-    KeycodeKPDivide   -> doUpdate KF state
-    Keycode0          -> doUpdate K0 state
-    Keycode1          -> doUpdate K1 state
-    Keycode2          -> doUpdate K2 state
-    Keycode3          -> doUpdate K3 state
-    Keycode4          -> doUpdate K4 state
-    Keycode5          -> doUpdate K5 state
-    Keycode6          -> doUpdate K6 state
-    Keycode7          -> doUpdate K7 state
-    Keycode8          -> doUpdate K8 state
-    Keycode9          -> doUpdate K9 state
-    KeycodeA          -> doUpdate KA state
-    KeycodeS          -> doUpdate KB state
-    KeycodeD          -> doUpdate KC state
-    KeycodeY          -> doUpdate KD state
-    KeycodeX          -> doUpdate KE state
-    KeycodeC          -> doUpdate KF state
+    KeycodeKP0        -> storeKeyState kState K0 state
+    KeycodeKP1        -> storeKeyState kState K1 state
+    KeycodeKP2        -> storeKeyState kState K2 state
+    KeycodeKP3        -> storeKeyState kState K3 state
+    KeycodeKP4        -> storeKeyState kState K4 state
+    KeycodeKP5        -> storeKeyState kState K5 state
+    KeycodeKP6        -> storeKeyState kState K6 state
+    KeycodeKP7        -> storeKeyState kState K7 state
+    KeycodeKP8        -> storeKeyState kState K8 state
+    KeycodeKP9        -> storeKeyState kState K9 state
+    KeycodeKPPeriod   -> storeKeyState kState KA state
+    KeycodeKPEnter    -> storeKeyState kState KB state
+    KeycodeKPPlus     -> storeKeyState kState KC state
+    KeycodeKPMinus    -> storeKeyState kState KD state
+    KeycodeKPMultiply -> storeKeyState kState KE state
+    KeycodeKPDivide   -> storeKeyState kState KF state
+    Keycode0          -> storeKeyState kState K0 state
+    Keycode1          -> storeKeyState kState K1 state
+    Keycode2          -> storeKeyState kState K2 state
+    Keycode3          -> storeKeyState kState K3 state
+    Keycode4          -> storeKeyState kState K4 state
+    Keycode5          -> storeKeyState kState K5 state
+    Keycode6          -> storeKeyState kState K6 state
+    Keycode7          -> storeKeyState kState K7 state
+    Keycode8          -> storeKeyState kState K8 state
+    Keycode9          -> storeKeyState kState K9 state
+    KeycodeA          -> storeKeyState kState KA state
+    KeycodeS          -> storeKeyState kState KB state
+    KeycodeD          -> storeKeyState kState KC state
+    KeycodeY          -> storeKeyState kState KD state
+    KeycodeX          -> storeKeyState kState KE state
+    KeycodeC          -> storeKeyState kState KF state
     _ -> return ()
-
-
-doUpdate :: ( PrimMonad m
-            , MonadReader env m
-            , HasC8Machine env
-            --, HasLogFunc env
-            --, HasCallStack
-            ) => C8Key -> Bool -> m ()
-doUpdate k state = do
-  kState <- keysState <$> view c8machineG
-  mKS <- A.unsafeThaw kState
-  A.write' mKS (fromEnum k) state
-  _ <- A.unsafeFreeze A.Seq mKS
-  return ()

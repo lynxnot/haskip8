@@ -5,6 +5,7 @@ module Haskip8.Emulator
 
 import RIO
 
+
 import Data.Bits ((.&.))
 import Data.Massiv.Array as A
 
@@ -16,7 +17,6 @@ import qualified SDL (Renderer, mapEvents)
 
 import Haskip8.Events
 import Haskip8.Instructions
---import Haskip8.Options
 import Haskip8.Types
 import Haskip8.UI
 import Haskip8.Util
@@ -63,11 +63,11 @@ bootC8 rom = do
   let seed    =  fst (randomR (0, 0xff) stdGen)
   pseudoRng   <- newIORef $ mkStdGen seed
   return C8Machine
-    { frameBuffer = A.makeArrayR A.S A.Seq (A.Sz 32 :. 64) (const False)
-    , keysState   = A.makeArrayR A.S A.Seq (A.Sz 16) (const False)
-    , stack       = A.makeArrayR A.S A.Seq (A.Sz 16) (const 0)
+    { frameBuffer = A.makeArrayR A.S A.Seq (32 :. 64) (const False)
+    , keysState   = A.makeArrayR A.S A.Seq 16 (const False)
+    , stack       = A.makeArrayR A.S A.Seq 16 (const 0)
     , memory      = initMemory rom
-    , regz        = A.makeArrayR A.S A.Seq (A.Sz 16) (const 0)
+    , regz        = A.makeArrayR A.S A.Seq 16 (const 0)
     , regI        = regI'
     , pc          = pc'
     , sp          = sp'
@@ -130,18 +130,24 @@ loopC8 r = do
 runC8Cycle :: ( PrimMonad m
               , MonadReader env m
               , MonadUnliftIO m
-              --, HasConfig env
               , HasC8Machine env
-              --, HasLogFunc env
-              --, HasCallStack
+              , HasLogFunc env
+              , HasCallStack
               ) => m ()
 runC8Cycle = do
   c8vm <- view c8machineG
   pc'  <- readIORef $ pc c8vm
   let op = parseOp $ readMemC8Long pc' (memory c8vm)
-  runOp op
-  --return ()
+  mInc <- runOp op
+  case mInc of
+    Just i -> atomicWriteIORef (pc c8vm) (pc' + fromIntegral i)
+    _      -> return ()
 
+
+incrementZero, incrementOne, incrementTwo :: PrimMonad m => m (Maybe Int)
+incrementZero = return Nothing
+incrementOne  = return $ Just 2
+incrementTwo  = return $ Just 4
 
 
 -- | Source of Thruth: http://devernay.free.fr/hacks/chip8/C8TECH10.HTM
@@ -150,9 +156,9 @@ runOp :: ( PrimMonad m
          , MonadReader env m
          , MonadUnliftIO m
          , HasC8Machine env
-         --, HasLogFunc env
-         --, HasCallStack
-         ) => Maybe C8Instruction -> m ()
+         , HasLogFunc env
+         , HasCallStack
+         ) => Maybe C8Instruction -> m (Maybe Int)
 runOp mop = do
   c8vm  <- view c8machineG
   let regz' = regz c8vm
@@ -160,15 +166,34 @@ runOp mop = do
     Nothing -> undefined -- should do a bluescreen
     Just op ->
       case op of
-        CLS            -> undefined
+
+        -- 00E0 - CLS
+        CLS            -> do
+          let _ = c8vm { frameBuffer = A.computeAs A.S $
+                              A.map (const False) (frameBuffer c8vm) }
+          incrementOne
+
+        -- 00E0 - RET
         RET            -> undefined
-        SYS  addr      -> undefined
-        JMP  addr      -> undefined
+        --SYS  addr      -> undefined
+
+        -- 1nnn - JP addr
+        JMP  addr      -> do
+          atomicWriteIORef (pc c8vm) addr
+          incrementZero
+
+        --
         CALL addr      -> undefined
         SEB  r1 word   -> undefined
         SNEB r1 word   -> undefined
         SE   r1 r2     -> undefined
-        LDB  r1 word   -> undefined
+
+
+        -- 6xkk - LD Vx, byte
+        LDB  r1 word   -> do
+          _ <- storeRegWord regz' r1 word
+          incrementOne
+
         ADDB r1 word   -> undefined
         LD   r1 r2     -> undefined
         OR   r1 r2     -> undefined
@@ -181,42 +206,83 @@ runOp mop = do
         SHL  r1 r2     -> undefined
         SNE  r1 r2     -> undefined
 
+
         -- Annn - LD I, addr
-        LDI  addr      -> atomicWriteIORef (regI c8vm) addr
+        LDI  addr      -> do
+          atomicWriteIORef (regI c8vm) addr
+          incrementOne
+
 
         -- Bnnn - JP V0, addr
         JMP0 addr      -> do
           let newAddr = addr + fromIntegral (regz' A.! 0)
           atomicWriteIORef (pc c8vm) newAddr
+          incrementZero
+
 
         -- Cxkk - RND Vx, byte
         RND  r1 word   -> do
           prng <- readIORef (rndGen c8vm)
           let (rnd, prng') = randomR (0, 0xff) prng
-          _ <- storeRegWord regz' r1 (rnd .&. word)
+          let !res = rnd .&. word
+          _ <- storeRegWord regz' r1 res
+          logDebug $ "RND: " <> displayShow res
           atomicWriteIORef (rndGen c8vm) prng'
+          incrementOne
+
+
+        -- Dxyn - DRW Vx, Vy, nibble
+        DRW  r1 r2 nib -> do
+          let x = regz' A.! fromEnum r1
+          let y = fromIntegral $ regz' A.! fromEnum r2 :: Int
+          let offset = fromIntegral nib
+          let rowIxs = take offset $ (`mod` 32) <$> enumFrom y
+          regI' <- readIORef (regI c8vm)
+          let sprite = A.toList (A.extract' (fromIntegral regI')
+                                   offset
+                                   (memory c8vm))
+          let spriteRows = sprite2Row x <$> sprite
+          collided <- drawRows rowIxs spriteRows
+          _ <- if collided then storeRegWord regz' VF 1
+                           else storeRegWord regz' VF 0
+          incrementOne
+
 
         --
-        DRW  r1 r2 nib -> undefined
         SKP  r1        -> undefined
         SKNP r1        -> undefined
         LDDT r1        -> undefined
-        LDK  r1        -> undefined
+
+        --
+        LDK  r1        -> incrementZero
+        --LDK  r1        -> incrementOne
+
         STDT r1        -> undefined
         STST r1        -> undefined
         ADDI r1        -> undefined
-        LDF  r1        -> undefined
+
+
+        -- Fx29 -- LD F, Vx
+        LDF  r1        -> do
+          let !digit = regz' A.! fromEnum r1
+          atomicWriteIORef (regI c8vm)
+            (addrSpriteStart + 5 * fromIntegral digit)
+          incrementOne
+
 
         -- Fx33
         LBCD r1        -> do
           regI' <- readIORef (regI c8vm)
           let bcds = c8wordBCD (regz' A.! fromEnum r1)
+          let addrBCDs = RIO.zip [regI' .. ] bcds
           _ <- RIO.mapM (uncurry (storeMemWord (memory c8vm)))
-                      $  RIO.zip [regI' .. ] bcds
-          return ()
+                        addrBCDs
+          incrementOne
+
 
         -- Fx55 - LD [I], Vx
         STRI r1        -> undefined
+
 
         -- Fx65 - LD Vx, [I]
         REDI r1        -> do
@@ -226,4 +292,4 @@ runOp mop = do
                                              (memory c8vm)
           _ <- RIO.mapM (uncurry (storeRegWord regz'))
                       $  RIO.zip (enumFrom V0) values
-          return ()
+          incrementOne
