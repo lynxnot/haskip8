@@ -14,7 +14,7 @@ import Haskip8.Util
 data C8Instruction
   = CLS                      -- 0x 00 E0
   | RET                      -- 0x 00 EE
-  | SYS  C8Addr              -- 0x 0n nn
+  -- | SYS  C8Addr              -- 0x 0n nn
   | JMP  C8Addr              -- 0x 1n nn
   | CALL C8Addr              -- 0x 2n nn
   | SEB  C8Reg C8Word        -- 0x 3x vv
@@ -59,7 +59,7 @@ parseOp op
   = case nibbles op of
       (0x0, 0x0, 0xE, 0x0) -> Just CLS
       (0x0, 0x0, 0xE, 0xE) -> Just RET
-      (0x0,   _,   _,   _) -> Just $ SYS  (c8addr op)
+      --(0x0,   _,   _,   _) -> Just $ SYS  (c8addr op)
       (0x1,   _,   _,   _) -> Just $ JMP  (c8addr op)
       (0x2,   _,   _,   _) -> Just $ CALL (c8addr op)
       (0x3,  vX,   _,   _) -> Just $ SEB  (nib2Reg vX) (loByte op)
