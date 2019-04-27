@@ -169,8 +169,7 @@ runOp mop = do
 
         -- 00E0 - CLS
         CLS            -> do
-          let _ = c8vm { frameBuffer = A.computeAs A.S $
-                              A.map (const False) (frameBuffer c8vm) }
+          clearFB (frameBuffer c8vm)
           incrementOne
 
         -- 00E0 - RET
@@ -254,8 +253,10 @@ runOp mop = do
         LDDT r1        -> undefined
 
         --
-        LDK  r1        -> incrementZero
-        --LDK  r1        -> incrementOne
+        --LDK  r1        -> incrementZero
+        LDK  r1        -> do
+          threadDelay (2 * 1000000)
+          incrementOne
 
         STDT r1        -> undefined
         STST r1        -> undefined

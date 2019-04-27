@@ -14,6 +14,7 @@ module Haskip8.Util
     , c8wordBCD
     , sprite2Row
     , drawRows
+    , clearFB
     ) where
 
 import RIO
@@ -147,5 +148,12 @@ drawRows rowsIx rows = do
   let (colls, newRows) = L.unzip $ uncurry drawRow <$> RIO.zip actualRows rows
   let newIxs = (\row -> (row :.) <$> take 64 [0..]) <$> rowsIx
   let !newIxsPixls = RIO.zip (RIO.concat newIxs) (RIO.concat newRows)
-  _ <- RIO.mapM (updateFbBit c8fb) newIxsPixls
+  RIO.mapM_ (updateFbBit c8fb) newIxsPixls
   return (RIO.any id colls)
+
+
+-- |
+clearFB :: PrimMonad m => C8FrameBuffer -> m ()
+clearFB c8fb =
+  A.imapM_ (curry (updateFbBit c8fb))
+           (A.makeArrayR A.U A.Seq (32 :. 64) (const False))
