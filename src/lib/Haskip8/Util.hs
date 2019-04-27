@@ -22,7 +22,6 @@ import RIO.Partial (toEnum)
 
 import Data.BitVector as BV
 import Data.Bits ((.&.), shiftR, shiftL)
-import Data.List as L (head, last, unzip)
 
 import Data.Massiv.Array as A
 import Data.Massiv.Array.Unsafe as A
@@ -61,6 +60,13 @@ nib2Reg n = toEnum $ fromIntegral n
 -- |
 zeroes :: Int -> [C8Word]
 zeroes n = RIO.replicate n 0x0
+
+
+-- |
+c8wordBCD :: C8Word -> [C8Word]
+c8wordBCD c8w = [c, d, u]
+  where (cd, u) = c8w `quotRem` 10
+        ( c, d) =  cd `quotRem` 10
 
 
 -- |
@@ -108,18 +114,16 @@ updateFbBit fb (ix, e) =
 
 
 -- |
-c8wordBCD :: C8Word -> [C8Word]
-c8wordBCD c8w = [c, d, u]
-  where (cd, u) = c8w `quotRem` 10
-        ( c, d) =  cd `quotRem` 10
-
+clearFB :: PrimMonad m => C8FrameBuffer -> m ()
+clearFB c8fb =
+  A.imapM_ (curry (updateFbBit c8fb))
+           (A.makeArrayR A.U A.Seq (32 :. 64) (const False))
 
 
 -- |
 spriteB2Fb :: C8Word -> C8Word -> [Bool]
 spriteB2Fb xPos c8w =
   toBits $ (bitVec 64 c8w <<. 56) >>>. fromIntegral xPos
-
 
 
 -- | return the pair:
@@ -131,25 +135,20 @@ cxor _ _         = (False, True)
 
 
 -- |
-drawSpriteFb :: ( PrimMonad m
-            , MonadReader env m
-            , HasC8Machine env
-            ) => Int -> A.Array A.U Ix2 Bool -> m Bool
-drawSpriteFb yPos spriteFb = do
-  c8fb <- frameBuffer <$> view c8machineG
-  let (colls, newFb) = A.unzip $ A.imap (mergeSpriteFb c8fb yPos) spriteFb
-  A.mapM_ (updateFbBit c8fb) newFb
-  return (A.any id colls)
-
-
 mergeSpriteFb :: C8FrameBuffer -> Int -> Ix2 -> Bool -> (Bool, (Ix2, Bool))
 mergeSpriteFb c8fb yPos (y :. x) e = (hasCollided, (ix', e'))
   where (hasCollided, e') = cxor current e
         current = c8fb A.! ix'
         ix' = yPos + y :. x
 
+
 -- |
-clearFB :: PrimMonad m => C8FrameBuffer -> m ()
-clearFB c8fb =
-  A.imapM_ (curry (updateFbBit c8fb))
-           (A.makeArrayR A.U A.Seq (32 :. 64) (const False))
+drawSpriteFb :: ( PrimMonad m
+                , MonadReader env m
+                , HasC8Machine env
+                ) => Int -> A.Array A.U Ix2 Bool -> m Bool
+drawSpriteFb yPos spriteFb = do
+  c8fb <- frameBuffer <$> view c8machineG
+  let (colls, newFb) = A.unzip $ A.imap (mergeSpriteFb c8fb yPos) spriteFb
+  A.mapM_ (updateFbBit c8fb) newFb
+  return (A.any id colls)
