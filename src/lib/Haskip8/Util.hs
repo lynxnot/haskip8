@@ -12,8 +12,8 @@ module Haskip8.Util
     , storeRegWord
     , storeMemWord
     , c8wordBCD
-    , sprite2Row
-    , drawRows
+    , spriteB2Fb
+    , drawSpriteFb
     , clearFB
     ) where
 
@@ -114,43 +114,39 @@ c8wordBCD c8w = [c, d, u]
         ( c, d) =  cd `quotRem` 10
 
 
+
 -- |
-sprite2Row :: C8Word -> C8Word -> [Bool]
-sprite2Row pos sprite =
-  toBits $ (bitVec 64 sprite <<. 56) >>>. fromIntegral pos
+spriteB2Fb :: C8Word -> C8Word -> [Bool]
+spriteB2Fb xPos c8w =
+  toBits $ (bitVec 64 c8w <<. 56) >>>. fromIntegral xPos
+
 
 
 -- | return the pair:
 --    -> (collision?, xor a b)
-cxor :: (Bool, Bool) -> (Bool, Bool)
-cxor (True,  True)  = (True, False)
-cxor (False, False) = (False, False)
-cxor (_,     _)     = (False, True)
+cxor :: Bool -> Bool -> (Bool, Bool)
+cxor True True   = (True, False)
+cxor False False = (False, False)
+cxor _ _         = (False, True)
 
 
 -- |
-drawRow :: [Bool] -> [Bool] -> (Bool, [Bool])
-drawRow r1 r2 = (collided, pixls)
-  where (colls, pixls) = L.unzip $ RIO.map cxor $ RIO.zip r1 r2
-        collided = RIO.any id colls
-
-
--- |
-drawRows :: ( PrimMonad m
+drawSpriteFb :: ( PrimMonad m
             , MonadReader env m
             , HasC8Machine env
-            ) => [Int] -> [[Bool]] -> m Bool
-drawRows rowsIx rows = do
+            ) => Int -> A.Array A.U Ix2 Bool -> m Bool
+drawSpriteFb yPos spriteFb = do
   c8fb <- frameBuffer <$> view c8machineG
-  let actualRows = A.toLists
-                      $ A.extractFromTo' (L.head rowsIx     :. 0)
-                                         (L.last rowsIx + 1 :. 64) c8fb
-  let (colls, newRows) = L.unzip $ uncurry drawRow <$> RIO.zip actualRows rows
-  let newIxs = (\row -> (row :.) <$> take 64 [0..]) <$> rowsIx
-  let !newIxsPixls = RIO.zip (RIO.concat newIxs) (RIO.concat newRows)
-  RIO.mapM_ (updateFbBit c8fb) newIxsPixls
-  return (RIO.any id colls)
+  let (colls, newFb) = A.unzip $ A.imap (mergeSpriteFb c8fb yPos) spriteFb
+  A.mapM_ (updateFbBit c8fb) newFb
+  return (A.any id colls)
 
+
+mergeSpriteFb :: C8FrameBuffer -> Int -> Ix2 -> Bool -> (Bool, (Ix2, Bool))
+mergeSpriteFb c8fb yPos (y :. x) e = (hasCollided, (ix', e'))
+  where (hasCollided, e') = cxor current e
+        current = c8fb A.! ix'
+        ix' = yPos + y :. x
 
 -- |
 clearFB :: PrimMonad m => C8FrameBuffer -> m ()

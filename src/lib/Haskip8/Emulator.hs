@@ -232,20 +232,18 @@ runOp mop = do
 
         -- Dxyn - DRW Vx, Vy, nibble
         DRW  r1 r2 nib -> do
-          let x = regz' A.! fromEnum r1
-          let y = fromIntegral $ regz' A.! fromEnum r2 :: Int
-          let offset = fromIntegral nib
-          let rowIxs = take offset $ (`mod` 32) <$> enumFrom y
           regI' <- readIORef (regI c8vm)
-          let sprite = A.toList (A.extract' (fromIntegral regI')
-                                   offset
-                                   (memory c8vm))
-          let spriteRows = sprite2Row x <$> sprite
-          collided <- drawRows rowIxs spriteRows
-          _ <- if collided then storeRegWord regz' VF 1
-                           else storeRegWord regz' VF 0
+          let sprite   = A.extract' (fromIntegral regI') offset (memory c8vm)
+          let spriteFb = A.fromLists' A.Seq
+                           (A.foldrS (\e a -> spriteB2Fb x e : a) [] sprite)
+                           :: A.Array A.U Ix2 Bool
+          hasCollided <- drawSpriteFb y spriteFb
+          _ <- if hasCollided then storeRegWord regz' VF 1
+                              else storeRegWord regz' VF 0
           incrementOne
-
+            where x = regz' A.! fromEnum r1
+                  y = fromIntegral $ regz' A.! fromEnum r2 :: Int
+                  offset = fromIntegral nib
 
         --
         SKP  r1        -> undefined
