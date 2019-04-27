@@ -144,6 +144,7 @@ runC8Cycle = do
     _      -> return ()
 
 
+-- |
 incrementZero, incrementOne, incrementTwo :: PrimMonad m => m (Maybe Int)
 incrementZero = return Nothing
 incrementOne  = return $ Just 2
@@ -250,11 +251,13 @@ runOp mop = do
         SKNP r1        -> undefined
         LDDT r1        -> undefined
 
-        --
-        --LDK  r1        -> incrementZero
+
+        -- Fx0A -- LD Vx, K
         LDK  r1        -> do
-          threadDelay (2 * 1000000)
+          c8key <- waitForKeyPress
+          _ <- storeRegWord regz' r1 $ fromIntegral (fromEnum c8key)
           incrementOne
+
 
         STDT r1        -> undefined
         STST r1        -> undefined
