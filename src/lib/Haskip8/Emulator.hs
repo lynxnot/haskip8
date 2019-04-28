@@ -4,12 +4,10 @@ module Haskip8.Emulator
   ) where
 
 import RIO
+import RIO.Partial (toEnum)
 
-
-import Data.Bits ((.&.))
+import Data.Bits ((.&.), (.|.), xor, shift, testBit)
 import Data.Massiv.Array as A
-
-import GHC.Enum (enumFrom)
 
 import System.Random
 
@@ -173,38 +171,150 @@ runOp mop = do
           clearFB (frameBuffer c8vm)
           incrementOne
 
+
         -- 00E0 - RET
-        RET            -> undefined
-        --SYS  addr      -> undefined
+        RET            -> do
+          sp' <- readIORef (sp c8vm)
+          atomicWriteIORef (sp c8vm) (sp' - 1)
+          let c8l = c8st A.! fromIntegral (sp' - 1)
+          atomicWriteIORef (pc c8vm) (c8addr c8l)
+          incrementZero
+            where c8st = stack c8vm
+
 
         -- 1nnn - JP addr
         JMP  addr      -> do
           atomicWriteIORef (pc c8vm) addr
           incrementZero
 
-        --
-        CALL addr      -> undefined
-        SEB  r1 word   -> undefined
-        SNEB r1 word   -> undefined
-        SE   r1 r2     -> undefined
+
+        -- 2nnn -> CALL addr
+        CALL addr      -> do
+          pc' <- readIORef (pc c8vm)
+          sp' <- readIORef (sp c8vm)
+          storeStackLong c8st sp' (fromIntegral pc')
+          atomicWriteIORef (sp c8vm) (sp' + 1)
+          atomicWriteIORef (pc c8vm) addr
+          incrementZero
+            where c8st = stack c8vm
+
+
+        -- 3xkk -> SE Vx, byte
+        SEB  r1 word   ->
+          if x == word then incrementTwo else incrementOne
+            where x = regz' A.! fromEnum r1
+
+
+        -- 4xkk -> SNE Vx, byte
+        SNEB r1 word   ->
+          if x == word then incrementOne else incrementTwo
+            where x = regz' A.! fromEnum r1
+
+
+        -- 5xy0 -> SE Vx, Vy
+        SE   r1 r2     ->
+          if x == y then incrementTwo else incrementOne
+            where x = regz' A.! fromEnum r1
+                  y = regz' A.! fromEnum r2
 
 
         -- 6xkk - LD Vx, byte
         LDB  r1 word   -> do
-          _ <- storeRegWord regz' r1 word
+          storeRegWord regz' r1 word
           incrementOne
 
-        ADDB r1 word   -> undefined
-        LD   r1 r2     -> undefined
-        OR   r1 r2     -> undefined
-        AND  r1 r2     -> undefined
-        XOR  r1 r2     -> undefined
-        ADD  r1 r2     -> undefined
-        SUB  r1 r2     -> undefined
-        SHR  r1 r2     -> undefined
-        SUBN r1 r2     -> undefined
-        SHL  r1 r2     -> undefined
-        SNE  r1 r2     -> undefined
+
+        -- 7xkk - ADD Vx, byte
+        ADDB r1 word   -> do
+          storeRegWord regz' r1 (x + word)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+
+
+        -- 8xy0 - LD Vx, Vy
+        LD   r1 r2     -> do
+          storeRegWord regz' r1 y
+          incrementOne
+            where !y = regz' A.! fromEnum r2
+
+
+        -- 8xy1 - OR Vx, Vy
+        OR   r1 r2     -> do
+          storeRegWord regz' r1 (x .|. y)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+                  !y = regz' A.! fromEnum r2
+
+
+        -- 8xy2 - AND Vx, Vy
+        AND  r1 r2     -> do
+          storeRegWord regz' r1 (x .&. y)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+                  !y = regz' A.! fromEnum r2
+
+
+        -- 8xy3 - XOR Vx, Vy
+        XOR  r1 r2     -> do
+          storeRegWord regz' r1 (x `xor` y)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+                  !y = regz' A.! fromEnum r2
+
+
+        -- 8xy4 - ADD Vx, Vy
+        ADD  r1 r2     -> do
+          storeRegWord regz' VF $
+                 fromIntegral . fromEnum $ x > maxBound - y
+          storeRegWord regz' r1 (x + y)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+                  !y = regz' A.! fromEnum r2
+
+
+        -- 8xy5 - SUB Vx, Vy
+        SUB  r1 r2     -> do
+          storeRegWord regz' VF $
+                 fromIntegral . fromEnum $ x > y
+          storeRegWord regz' r1 (x - y)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+                  !y = regz' A.! fromEnum r2
+
+
+        -- 8xy6 - SHR Vx {, Vy}
+        SHR  r1 _      -> do
+          storeRegWord regz' VF $
+                 fromIntegral . fromEnum $ odd x
+          storeRegWord regz' r1 $ x `shift` (-1)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+
+
+        -- 8xy7 - SUBN Vx, Vy
+        SUBN r1 r2     -> do
+          storeRegWord regz' VF $
+                 fromIntegral . fromEnum $ y > x
+          storeRegWord regz' r1 (y - x)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+                  !y = regz' A.! fromEnum r2
+
+
+        -- 8xyE - SHL Vx {, Vy}
+        SHL  r1 _      -> do
+          storeRegWord regz' VF $
+                 fromIntegral . fromEnum $ testBit x 8
+          storeRegWord regz' r1 $ x `shift` 1
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+
+
+        -- 9xy0 - SNE
+        SNE  r1 r2     ->
+          if x == y then incrementOne else incrementTwo
+            where x = regz' A.! fromEnum r1
+                  y = regz' A.! fromEnum r2
 
 
         -- Annn - LD I, addr
@@ -225,7 +335,7 @@ runOp mop = do
           prng <- readIORef (rndGen c8vm)
           let (rnd, prng') = randomR (0, 0xff) prng
           let !res = rnd .&. word
-          _ <- storeRegWord regz' r1 res
+          storeRegWord regz' r1 res
           logDebug $ "RND: " <> displayShow res
           atomicWriteIORef (rndGen c8vm) prng'
           incrementOne
@@ -239,29 +349,63 @@ runOp mop = do
                            (A.foldrS (\e a -> spriteB2Fb x e : a) [] sprite)
                            :: A.Array A.U Ix2 Bool
           hasCollided <- drawSpriteFb y spriteFb
-          _ <- if hasCollided then storeRegWord regz' VF 1
-                              else storeRegWord regz' VF 0
+          storeRegWord regz' VF $ fromIntegral (fromEnum hasCollided)
           incrementOne
             where x = regz' A.! fromEnum r1
                   y = fromIntegral $ regz' A.! fromEnum r2 :: Int
                   offset = fromIntegral nib
 
-        --
-        SKP  r1        -> undefined
-        SKNP r1        -> undefined
-        LDDT r1        -> undefined
+
+        -- 0x9E - SKP Vx
+        SKP  r1        ->
+          if isPressed then incrementTwo else incrementOne
+            where !x = regz' A.! fromEnum r1
+                  isPressed = kState A.! (toEnum . fromIntegral $ x)
+                  kState = keysState c8vm
 
 
-        -- Fx0A -- LD Vx, K
-        LDK  r1        -> do
-          c8key <- waitForKeyPress
-          _ <- storeRegWord regz' r1 $ fromIntegral (fromEnum c8key)
+        -- 0xA1 - SKNP Vx
+        SKNP r1        ->
+          if isPressed then incrementOne else incrementTwo
+            where !x = regz' A.! fromEnum r1
+                  isPressed = kState A.! (toEnum . fromIntegral $ x)
+                  kState = keysState c8vm
+
+
+        -- Fx07 - LD Vx, DT
+        LDDT r1        -> do
+          dt' <- readIORef (dt c8vm)
+          storeRegWord regz' r1 dt'
           incrementOne
 
 
-        STDT r1        -> undefined
-        STST r1        -> undefined
-        ADDI r1        -> undefined
+        -- Fx0A - LD Vx, K
+        LDK  r1        -> do
+          c8key <- waitForKeyPress
+          storeRegWord regz' r1 $ fromIntegral (fromEnum c8key)
+          incrementOne
+
+
+        -- Fx15 - LD DT, Vx
+        STDT r1        -> do
+          atomicWriteIORef (dt c8vm) x
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+
+
+        -- Fx18 - LD ST, Vx
+        STST r1        -> do
+          atomicWriteIORef (st c8vm) x
+          incrementOne
+            where !x = regz' A.! fromEnum r1
+
+
+        -- Fx1E - ADD I, Vx
+        ADDI r1        -> do
+          regI' <- readIORef (regI c8vm)
+          atomicWriteIORef (regI c8vm) (regI' + fromIntegral x)
+          incrementOne
+            where !x = regz' A.! fromEnum r1
 
 
         -- Fx29 -- LD F, Vx
@@ -272,26 +416,33 @@ runOp mop = do
           incrementOne
 
 
-        -- Fx33
+        -- Fx33 - LD B, Vx
         LBCD r1        -> do
           regI' <- readIORef (regI c8vm)
-          let bcds = c8wordBCD (regz' A.! fromEnum r1)
-          let addrBCDs = RIO.zip [regI' .. ] bcds
-          _ <- RIO.mapM (uncurry (storeMemWord (memory c8vm)))
-                        addrBCDs
+          RIO.mapM_ (uncurry (storeMemWord (memory c8vm)))
+                    (RIO.zip [regI' .. ] bcds)
           incrementOne
+            where bcds = c8wordBCD (regz' A.! fromEnum r1)
 
 
         -- Fx55 - LD [I], Vx
-        STRI r1        -> undefined
+        STRI r1        -> do
+          regI' <- readIORef (regI c8vm)
+          let values = A.extract' 0 (fromEnum r1 + 1) regz'
+          A.mapM_ (uncurry (storeMemWord c8mem))
+                $ A.zip (A.enumFromN A.Seq regI' $ A.size values)
+                         values
+          incrementOne
+            where c8mem = memory c8vm
 
 
         -- Fx65 - LD Vx, [I]
         REDI r1        -> do
           regI' <- readIORef (regI c8vm)
-          let values = A.toList $ A.extract' (fromIntegral regI')
-                                             (fromEnum r1 + 1)
-                                             (memory c8vm)
-          _ <- RIO.mapM (uncurry (storeRegWord regz'))
-                      $  RIO.zip (enumFrom V0) values
+          let values = A.extract' (fromIntegral regI')
+                                  (fromEnum r1 + 1)
+                                  (memory c8vm)
+          A.mapM_ (uncurry (storeRegWord regz'))
+                $  A.zip (A.fromList A.Seq [V0 .. r1] :: Array B Ix1 C8Reg)
+                   values
           incrementOne

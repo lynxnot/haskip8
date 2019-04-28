@@ -10,6 +10,7 @@ module Haskip8.Util
     , unsafeWithMArray
     , storeKeyState
     , storeRegWord
+    , storeStackLong
     , storeMemWord
     , c8wordBCD
     , spriteB2Fb
@@ -96,9 +97,17 @@ storeKeyState kState k state = do
 
 
 -- |
-storeRegWord :: PrimMonad m => C8Registers -> C8Reg -> C8Word -> m C8Registers
-storeRegWord rs r w =
-  unsafeWithMArray rs (\ma -> A.write' ma (fromEnum r) w)
+storeRegWord :: PrimMonad m => C8Registers -> C8Reg -> C8Word -> m ()
+storeRegWord rs r w = do
+  _ <- unsafeWithMArray rs (\ma -> A.write' ma (fromEnum r) w)
+  return ()
+
+
+-- |
+storeStackLong :: PrimMonad m => C8Stack -> C8Word -> C8Long -> m ()
+storeStackLong c8st p c8l = do
+  _ <- unsafeWithMArray c8st (\ma -> A.write' ma (fromIntegral p) c8l)
+  return ()
 
 
 -- |
@@ -139,7 +148,7 @@ mergeSpriteFb :: C8FrameBuffer -> Int -> Ix2 -> Bool -> (Bool, (Ix2, Bool))
 mergeSpriteFb c8fb yPos (y :. x) e = (hasCollided, (ix', e'))
   where (hasCollided, e') = cxor current e
         current = c8fb A.! ix'
-        ix' = yPos + y :. x
+        ix' = (yPos + y) `mod` 32 :. x
 
 
 -- |
