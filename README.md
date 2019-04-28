@@ -25,3 +25,8 @@ You also need the SDL 2 library: `sudo apt install libsdl2-dev`
 ### Acknowledgemnts
 
 The emulator implementation is based on [Cowgod's Chip-8 Technical Reference](http://devernay.free.fr/hacks/chip8/C8TECH10.HTM)
+
+ROM files have been taken from the following github projects:
+
+- Lonami's [chip8-asm64-emu](https://github.com/Lonami/chip8-asm64-emu)
+- dmatlack's [chip8](https://github.com/dmatlack/chip8)
