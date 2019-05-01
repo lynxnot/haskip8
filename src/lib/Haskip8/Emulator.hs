@@ -182,13 +182,14 @@ runOp mop = do
           incrementOne
 
 
-        -- 00E0 - RET
+        -- 00EE - RET
         RET            -> do
+          --logDebug "RET"
           sp' <- readIORef (sp c8vm)
           atomicWriteIORef (sp c8vm) (sp' - 1)
           let c8l = c8st A.! fromIntegral (sp' - 1)
-          atomicWriteIORef (pc c8vm) (c8addr c8l)
-          incrementOne
+          atomicWriteIORef (pc c8vm) (c8addr c8l + 2)
+          incrementZero
             where c8st = stack c8vm
 
 
@@ -200,6 +201,7 @@ runOp mop = do
 
         -- 2nnn -> CALL addr
         CALL addr      -> do
+          --logDebug $ "CALL " <> displayShow addr
           pc' <- readIORef (pc c8vm)
           sp' <- readIORef (sp c8vm)
           storeStackLong c8st sp' (fromIntegral pc')
@@ -209,19 +211,19 @@ runOp mop = do
             where c8st = stack c8vm
 
 
-        -- 3xkk -> SE Vx, byte
+        -- 3xkk -> SE Vx, byte - BC_test OK
         SEB  r1 word   ->
           if x == word then incrementTwo else incrementOne
             where x = regz' A.! fromEnum r1
 
 
-        -- 4xkk -> SNE Vx, byte
+        -- 4xkk -> SNE Vx, byte - BC_test OK
         SNEB r1 word   ->
           if x == word then incrementOne else incrementTwo
             where x = regz' A.! fromEnum r1
 
 
-        -- 5xy0 -> SE Vx, Vy
+        -- 5xy0 -> SE Vx, Vy - BC_test OK
         SE   r1 r2     ->
           if x == y then incrementTwo else incrementOne
             where x = regz' A.! fromEnum r1
@@ -230,12 +232,12 @@ runOp mop = do
 
         -- 6xkk - LD Vx, byte
         LDB  r1 word   -> do
-          logDebug $ "LDB " <> displayShow r1 <> " " <> displayShow word
+          --logDebug $ "LDB " <> displayShow r1 <> " " <> displayShow word
           storeRegWord regz' r1 word
           incrementOne
 
 
-        -- 7xkk - ADD Vx, byte
+        -- 7xkk - ADD Vx, byte - BC_test OK
         ADDB r1 word   -> do
           storeRegWord regz' r1 (x + word)
           incrementOne
@@ -244,13 +246,13 @@ runOp mop = do
 
         -- 8xy0 - LD Vx, Vy
         LD   r1 r2     -> do
-          logDebug $ "LD " <> displayShow r1 <> " " <> displayShow y
+          --logDebug $ "LD " <> displayShow r1 <> " " <> displayShow y
           storeRegWord regz' r1 y
           incrementOne
             where !y = regz' A.! fromEnum r2
 
 
-        -- 8xy1 - OR Vx, Vy
+        -- 8xy1 - OR Vx, Vy - BC_test OK
         OR   r1 r2     -> do
           storeRegWord regz' r1 (x .|. y)
           incrementOne
@@ -258,7 +260,7 @@ runOp mop = do
                   !y = regz' A.! fromEnum r2
 
 
-        -- 8xy2 - AND Vx, Vy
+        -- 8xy2 - AND Vx, Vy - BC_test OK
         AND  r1 r2     -> do
           storeRegWord regz' r1 (x .&. y)
           incrementOne
@@ -266,7 +268,7 @@ runOp mop = do
                   !y = regz' A.! fromEnum r2
 
 
-        -- 8xy3 - XOR Vx, Vy
+        -- 8xy3 - XOR Vx, Vy - BC_test OK
         XOR  r1 r2     -> do
           storeRegWord regz' r1 (x `xor` y)
           incrementOne
@@ -284,7 +286,7 @@ runOp mop = do
                   !y = regz' A.! fromEnum r2
 
 
-        -- 8xy5 - SUB Vx, Vy
+        -- 8xy5 - SUB Vx, Vy - BC_test OK
         SUB  r1 r2     -> do
           storeRegWord regz' VF $
                  fromIntegral . fromEnum $ x > y
@@ -294,7 +296,7 @@ runOp mop = do
                   !y = regz' A.! fromEnum r2
 
 
-        -- 8xy6 - SHR Vx {, Vy}
+        -- 8xy6 - SHR Vx {, Vy} - BC_test OK
         SHR  r1 _      -> do
           storeRegWord regz' VF $
                  fromIntegral . fromEnum $ odd x
@@ -303,7 +305,7 @@ runOp mop = do
             where !x = regz' A.! fromEnum r1
 
 
-        -- 8xy7 - SUBN Vx, Vy
+        -- 8xy7 - SUBN Vx, Vy - BC_test OK
         SUBN r1 r2     -> do
           storeRegWord regz' VF $
                  fromIntegral . fromEnum $ y > x
@@ -313,10 +315,10 @@ runOp mop = do
                   !y = regz' A.! fromEnum r2
 
 
-        -- 8xyE - SHL Vx {, Vy}
+        -- 8xyE - SHL Vx {, Vy} - BC_test OK
         SHL  r1 _      -> do
           storeRegWord regz' VF $
-                 fromIntegral . fromEnum $ testBit x 8
+                 fromIntegral . fromEnum $ testBit x 7
           storeRegWord regz' r1 $ x `shift` 1
           incrementOne
             where !x = regz' A.! fromEnum r1
@@ -348,7 +350,7 @@ runOp mop = do
           let (rnd, prng') = randomR (0, 0xff) prng
           let !res = rnd .&. word
           storeRegWord regz' r1 res
-          logDebug $ "RND: " <> displayShow res
+          --logDebug $ "RND: " <> displayShow res
           atomicWriteIORef (rndGen c8vm) prng'
           incrementOne
 
@@ -370,7 +372,7 @@ runOp mop = do
 
         -- 0x9E - SKP Vx
         SKP  r1        -> do
-          logDebug $ "SKP " <> displayShow r1
+          --logDebug $ "SKP " <> displayShow r1
           if isPressed then incrementTwo else incrementOne
             where !x = regz' A.! fromEnum r1
                   isPressed = kState A.! (toEnum . fromIntegral $ x)
@@ -379,7 +381,7 @@ runOp mop = do
 
         -- 0xA1 - SKNP Vx
         SKNP r1        -> do
-          logDebug $ "SKNP " <> displayShow r1
+          --logDebug $ "SKNP " <> displayShow r1
           if isPressed then incrementOne else incrementTwo
             where !x = regz' A.! fromEnum r1
                   isPressed = kState A.! (toEnum . fromIntegral $ x)
@@ -395,7 +397,7 @@ runOp mop = do
 
         -- Fx0A - LD Vx, K
         LDK  r1        -> do
-          logDebug $ "LDK " <> displayShow r1
+          --logDebug $ "LDK " <> displayShow r1
           c8key <- waitForKeyPress
           storeRegWord regz' r1 $ fromIntegral (fromEnum c8key)
           incrementOne
@@ -403,6 +405,7 @@ runOp mop = do
 
         -- Fx15 - LD DT, Vx
         STDT r1        -> do
+          logDebug $ "STDT " <> displayShow x
           atomicWriteIORef (dt c8vm) x
           incrementOne
             where !x = regz' A.! fromEnum r1
@@ -410,12 +413,13 @@ runOp mop = do
 
         -- Fx18 - LD ST, Vx
         STST r1        -> do
+          logDebug $ "STDT " <> displayShow x
           atomicWriteIORef (st c8vm) x
           incrementOne
             where !x = regz' A.! fromEnum r1
 
 
-        -- Fx1E - ADD I, Vx
+        -- Fx1E - ADD I, Vx - BC_test OK
         ADDI r1        -> do
           regI' <- readIORef (regI c8vm)
           atomicWriteIORef (regI c8vm) (regI' + fromIntegral x)
@@ -431,7 +435,7 @@ runOp mop = do
           incrementOne
 
 
-        -- Fx33 - LD B, Vx
+        -- Fx33 - LD B, Vx - BC_test OK
         LBCD r1        -> do
           regI' <- readIORef (regI c8vm)
           RIO.mapM_ (uncurry (storeMemWord (memory c8vm)))
@@ -440,7 +444,7 @@ runOp mop = do
             where bcds = c8wordBCD (regz' A.! fromEnum r1)
 
 
-        -- Fx55 - LD [I], Vx
+        -- Fx55 - LD [I], Vx - BC_test OK
         STRI r1        -> do
           regI' <- readIORef (regI c8vm)
           let values = A.extract' 0 (fromEnum r1 + 1) regz'
@@ -451,7 +455,7 @@ runOp mop = do
             where c8mem = memory c8vm
 
 
-        -- Fx65 - LD Vx, [I]
+        -- Fx65 - LD Vx, [I] - BC_test OK
         REDI r1        -> do
           regI' <- readIORef (regI c8vm)
           let values = A.extract' (fromIntegral regI')
