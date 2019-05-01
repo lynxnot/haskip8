@@ -7,7 +7,7 @@ module Haskip8.Util
     , nibbles
     , zeroes
     , readMemC8Long
-    , unsafeWithMArray
+    --, unsafeWithMArray
     , storeKeyState
     , storeRegWord
     , storeStackLong
@@ -82,42 +82,41 @@ readMemC8Long addr mem = mkWord16 hi lo
 unsafeWithMArray :: ( Mutable r ix e, PrimMonad m )
   => Array r ix e
   -> (MArray (PrimState m) r ix e -> m a)
-  -> m (Array r ix e)
+  -> m ()
 unsafeWithMArray arr action = do
   marr <- A.unsafeThaw arr
   _    <- action marr
-  A.unsafeFreeze (A.getComp arr) marr
+  _    <- A.unsafeFreeze (A.getComp arr) marr
+  return ()
 
 
 -- |
 storeKeyState :: PrimMonad m => C8KeysState -> C8Key -> Bool -> m ()
-storeKeyState kState k state = do
-  _ <- unsafeWithMArray kState (\ma -> A.write' ma (fromEnum k) state)
-  return ()
+storeKeyState kState k state =
+  unsafeWithMArray kState (\ma -> A.write' ma (fromEnum k) state)
+
 
 
 -- |
 storeRegWord :: PrimMonad m => C8Registers -> C8Reg -> C8Word -> m ()
-storeRegWord rs r w = do
-  _ <- unsafeWithMArray rs (\ma -> A.write' ma (fromEnum r) w)
-  return ()
+storeRegWord rs r w =
+  unsafeWithMArray rs (\ma -> A.write' ma (fromEnum r) w)
 
 
 -- |
 storeStackLong :: PrimMonad m => C8Stack -> C8Word -> C8Long -> m ()
-storeStackLong c8st p c8l = do
-  _ <- unsafeWithMArray c8st (\ma -> A.write' ma (fromIntegral p) c8l)
-  return ()
+storeStackLong c8st p l =
+  unsafeWithMArray c8st (\ma -> A.write' ma (fromIntegral p) l)
 
 
 -- |
-storeMemWord :: PrimMonad m => C8Memory -> C8Addr -> C8Word -> m C8Memory
+storeMemWord :: PrimMonad m => C8Memory -> C8Addr -> C8Word -> m ()
 storeMemWord mem addr w =
   unsafeWithMArray mem (\ma -> A.write' ma (fromIntegral addr) w)
 
 
 -- |
-updateFbBit :: PrimMonad m => C8FrameBuffer -> (Ix2, Bool) -> m C8FrameBuffer
+updateFbBit :: PrimMonad m => C8FrameBuffer -> (Ix2, Bool) -> m ()
 updateFbBit fb (ix, e) =
   unsafeWithMArray fb (\ma -> A.write' ma ix e)
 

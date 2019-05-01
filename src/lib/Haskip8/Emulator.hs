@@ -111,17 +111,27 @@ loopC8 :: ( PrimMonad m, MonadReader env m
           , HasCallStack
           ) => SDL.Renderer -> m ()
 loopC8 r = do
+  c8vm    <- view c8machineG
   -- manage events
   SDL.mapEvents eventReact
+  -- eventually decrement timers
+  decrementTimer (dt c8vm)
+  decrementTimer (st c8vm)
   -- run cycle
+  -- replicateM_ 5 runC8Cycle -- this breaks stuff !
   runC8Cycle
   -- draw window
   presentUI r
   -- exit or loop
-  c8vm    <- view c8machineG
   --logDebug $ "KS: " <> displayShow (keysState c8vm)
   exitNow <- readIORef (shouldExit c8vm)
   unless exitNow (loopC8 r)
+
+
+decrementTimer :: (PrimMonad m, MonadUnliftIO m) => IORef C8Word -> m ()
+decrementTimer tRef = do
+  t <- readIORef tRef
+  unless (t == 0) (atomicWriteIORef tRef (t - 1))
 
 
 -- |
@@ -178,7 +188,7 @@ runOp mop = do
           atomicWriteIORef (sp c8vm) (sp' - 1)
           let c8l = c8st A.! fromIntegral (sp' - 1)
           atomicWriteIORef (pc c8vm) (c8addr c8l)
-          incrementZero
+          incrementOne
             where c8st = stack c8vm
 
 
@@ -220,6 +230,7 @@ runOp mop = do
 
         -- 6xkk - LD Vx, byte
         LDB  r1 word   -> do
+          logDebug $ "LDB " <> displayShow r1 <> " " <> displayShow word
           storeRegWord regz' r1 word
           incrementOne
 
@@ -233,6 +244,7 @@ runOp mop = do
 
         -- 8xy0 - LD Vx, Vy
         LD   r1 r2     -> do
+          logDebug $ "LD " <> displayShow r1 <> " " <> displayShow y
           storeRegWord regz' r1 y
           incrementOne
             where !y = regz' A.! fromEnum r2
@@ -357,7 +369,8 @@ runOp mop = do
 
 
         -- 0x9E - SKP Vx
-        SKP  r1        ->
+        SKP  r1        -> do
+          logDebug $ "SKP " <> displayShow r1
           if isPressed then incrementTwo else incrementOne
             where !x = regz' A.! fromEnum r1
                   isPressed = kState A.! (toEnum . fromIntegral $ x)
@@ -365,7 +378,8 @@ runOp mop = do
 
 
         -- 0xA1 - SKNP Vx
-        SKNP r1        ->
+        SKNP r1        -> do
+          logDebug $ "SKNP " <> displayShow r1
           if isPressed then incrementOne else incrementTwo
             where !x = regz' A.! fromEnum r1
                   isPressed = kState A.! (toEnum . fromIntegral $ x)
@@ -381,6 +395,7 @@ runOp mop = do
 
         -- Fx0A - LD Vx, K
         LDK  r1        -> do
+          logDebug $ "LDK " <> displayShow r1
           c8key <- waitForKeyPress
           storeRegWord regz' r1 $ fromIntegral (fromEnum c8key)
           incrementOne
